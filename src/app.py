@@ -20,10 +20,13 @@ from pydantic import Field
 
 load_dotenv()
 
+# Configuration  du modèle
+DEFAULT_MODEL = "deepseek/deepseek-r1-0528-qwen3-8b:free"
+
 # Classe personnalisée pour OpenRouter
 class OpenRouterLLM(BaseLLM):
     api_key: str = Field(..., description="OpenRouter API key")
-    model: str = Field(default="meta-llama/llama-3.1-8b-instruct:free", description="Model to use")
+    model: str = Field(default=DEFAULT_MODEL, description="Model to use")
     base_url: str = Field(default="https://openrouter.ai/api/v1/chat/completions", description="OpenRouter API URL")
     
     @property
@@ -72,38 +75,39 @@ class OpenRouterLLM(BaseLLM):
         
         return LLMResult(generations=generations)
 
+def create_llm():
+    """Fonction utilitaire pour créer une instance LLM"""
+    return OpenRouterLLM(api_key=os.getenv("OPENROUTER_API_KEY"))
+
 def get_vectorstore_from_url(url):
     """Crée un vectorstore à partir d'une URL en utilisant HuggingFace embeddings"""
     
-    # Charger le document
+    # Chargement de document
     loader = WebBaseLoader(url)
     document = loader.load()
     
-    # Diviser en chunks
+    # Division en chunks
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200
     )
     document_chunks = text_splitter.split_documents(document)
     
-    # Utiliser HuggingFace embeddings (gratuit)
+    # Utilisation de HuggingFace embeddings 
     embeddings = HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2",
-        model_kwargs={'device': 'cpu'}  # Utiliser CPU pour éviter les problèmes de GPU
+        model_kwargs={'device': 'cpu'}  # CPU pour éviter les problèmes de GPU
     )
     
-    # Créer le vectorstore
+    # Création de vectorstore
     vector_store = Chroma.from_documents(document_chunks, embeddings)
     return vector_store
 
 def get_context_retriever_chain(vector_store):
     """Crée une chaîne de récupération contextuelle"""
     
-    # Initialiser OpenRouter LLM
-    llm = OpenRouterLLM(
-        api_key=os.getenv("OPENROUTER_API_KEY"),
-        model="meta-llama/llama-3.1-8b-instruct:free"  # Modèle gratuit
-    )
+    # model
+    llm = create_llm()
     
     retriever = vector_store.as_retriever()
     
@@ -120,10 +124,8 @@ def get_context_retriever_chain(vector_store):
 def get_conversational_rag_chain(retriever_chain): 
     """Crée la chaîne RAG conversationnelle"""
     
-    llm = OpenRouterLLM(
-        api_key=os.getenv("OPENROUTER_API_KEY"),
-        model="meta-llama/llama-3.1-8b-instruct:free"
-    )
+    # model
+    llm = create_llm()
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", """Answer the user's questions ONLY based on the below context. 
@@ -160,16 +162,16 @@ st.title("Chat with websites 🤖")
 
 # Sidebar
 with st.sidebar:
-    st.header("⚙️ Settings")
+    st.header("Settings")
     website_url = st.text_input("Website URL", placeholder="https://example.com")
     
+
     st.markdown("---")
     
-    
-    # Vérifier les clés API
+    # Vérification des clés API
     if not os.getenv("OPENROUTER_API_KEY"):
-        st.error("⚠️ Clé API OpenRouter manquante!")
-        st.markdown("Ajoutez `OPENROUTER_API_KEY` dans votre fichier .env")
+        st.error("Clé API OpenRouter manquante!")
+        st.markdown("Ajoutez OPENROUTER_API_KEY dans votre fichier .env")
 
 if website_url is None or website_url == "":
     st.info(" Please enter a website URL in the sidebar")
@@ -181,12 +183,12 @@ else:
         ]
     
     if "vector_store" not in st.session_state:
-        with st.spinner("🔄 Loading and processing website content..."):
+        with st.spinner("Loading and processing website content..."):
             try:
                 st.session_state.vector_store = get_vectorstore_from_url(website_url)
-                st.success("✅ Website content loaded successfully!")
+                st.success("Website content loaded successfully!")
             except Exception as e:
-                st.error(f"❌ Error loading website: {str(e)}")
+                st.error(f"Error loading website: {str(e)}")
                 st.stop()
     
     # User input
